@@ -132,13 +132,13 @@ class BaseBuffer(ABC):
             (may be useful to avoid changing things be reference)
         :return:
         """
-        if isinstance(array[0], spaces.GraphInstance):
+        if isinstance(array.flat[0], spaces.GraphInstance):
             obs_array = list()
             for graph_obj in array:
-                x = th.tensor(graph_obj.nodes).float()
+                x = th.tensor(graph_obj[0].nodes).float()
                 #edge_index = th.tensor(graph_obj.edge_links, dtype=th.long).t().contiguous().view(2, -1)
-                edge_index = th.tensor(graph_obj.edge_links, dtype=th.long)
-                edge_attr = th.tensor(graph_obj.edges, dtype=th.float)
+                edge_index = th.tensor(graph_obj[0].edge_links, dtype=th.long)
+                edge_attr = th.tensor(graph_obj[0].edges, dtype=th.float)
                 edge_num = th.count_nonzero(edge_attr[:,-1]==1)
                 torch_obs = thg.data.Data(x=x, edge_index=edge_index, edge_attr=edge_attr, edge_num=edge_num)
                 obs_array.append(torch_obs.to(self.device))
@@ -494,9 +494,11 @@ class RolloutBuffer(BaseBuffer):
 
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> RolloutBufferSamples:
         if isinstance(self.observation_space, spaces.Graph):
-            selected_observations = list()
-            for idx in batch_inds:
-                selected_observations.append(self.observations[idx])
+            selected_observations = self.observations[batch_inds]
+
+            #selected_observations = list()
+            #for idx in batch_inds:
+            #    selected_observations.append(self.observations[idx])
         else:
             selected_observations = self.observations[batch_inds]
         data = (
@@ -828,7 +830,8 @@ class GraphRolloutBuffer(RolloutBuffer):
     def reset(self) -> None:
         assert isinstance(self.observation_space, spaces.Graph), "GraphRolloutBuffer must be used with Graph obs space only"
         
-        self.observations = [None] * self.buffer_size # try to use list to save torch_geometric data
+        #self.observations = [None] * self.buffer_size # try to use list to save torch_geometric data
+        self.observations = np.empty((self.buffer_size, self.n_envs, self.action_dim), dtype=object)
         self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.float32)
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.returns = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
@@ -861,10 +864,10 @@ class GraphRolloutBuffer(RolloutBuffer):
         action = action.reshape((self.n_envs, self.action_dim))
 
         #self.observations[self.pos] = obs.copy()
-        self.observations[self.pos] = obs.copy()
-        self.actions[self.pos] = np.array(action).copy()
-        self.rewards[self.pos] = np.array(reward).copy()
-        self.episode_starts[self.pos] = np.array(episode_start).copy()
+        self.observations[self.pos] =np.array(obs)
+        self.actions[self.pos] = np.array(action)#.copy()
+        self.rewards[self.pos] = np.array(reward)#.copy()
+        self.episode_starts[self.pos] = np.array(episode_start)#.copy()
         self.values[self.pos] = value.clone().cpu().numpy().flatten()
         self.log_probs[self.pos] = log_prob.clone().cpu().numpy()
         self.pos += 1
@@ -877,11 +880,22 @@ class GraphRolloutBuffer(RolloutBuffer):
         # Prepare the data
         if not self.generator_ready:
             # can only be used when venv = 1
-            self.raw_observations = list()
-            for vec_obs in self.observations:
-                self.raw_observations.extend(vec_obs)
-            self.observations = self.raw_observations
-            _tensor_names = ["actions", "values", "log_probs", "advantages", "returns"]
+            #self.raw_observations = list()
+            #for vec_obs in self.observations:
+            #    self.raw_observations.extend(vec_obs)
+            #self.observations = self.raw_observations
+            #_tensor_names = ["actions", "values", "log_probs", "advantages", "returns"]
+
+            #for tensor in _tensor_names:
+            #    self.__dict__[tensor] = self.swap_and_flatten(self.__dict__[tensor])
+            _tensor_names = [
+                "observations",
+                "actions",
+                "values",
+                "log_probs",
+                "advantages",
+                "returns",
+            ]
 
             for tensor in _tensor_names:
                 self.__dict__[tensor] = self.swap_and_flatten(self.__dict__[tensor])

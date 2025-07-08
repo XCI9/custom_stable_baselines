@@ -341,6 +341,8 @@ class BasePolicy(BaseModel):
 
         if isinstance(observation, thg.data.data.Data):
             observation = thg.data.Batch.from_data_list([observation])
+        elif isinstance(observation, list):
+            observation = thg.data.Batch.from_data_list(observation)
 
         with th.no_grad():
             actions = self._predict(observation, deterministic=deterministic)
@@ -468,6 +470,7 @@ class ActorCriticPolicy(BasePolicy):
 
         self.features_extractor = features_extractor_class(self.observation_space, **self.features_extractor_kwargs)
         self.features_dim = self.features_extractor.features_dim
+        self.features_extracto = th.compile(self.features_extractor)
 
         self.normalize_images = normalize_images
         self.log_std_init = log_std_init
@@ -539,6 +542,7 @@ class ActorCriticPolicy(BasePolicy):
             activation_fn=self.activation_fn,
             device=self.device,
         )
+        self.mlp_extractor = th.compile(self.mlp_extractor)
 
     def _build(self, lr_schedule: Schedule) -> None:
         """
@@ -567,6 +571,7 @@ class ActorCriticPolicy(BasePolicy):
             raise NotImplementedError(f"Unsupported distribution '{self.action_dist}'.")
 
         self.value_net = nn.Linear(self.mlp_extractor.latent_dim_vf, 1)
+        self.value_net = th.compile(self.value_net)
         # Init weights: use orthogonal initialization
         # with small initial weight for the output
         if self.ortho_init:
@@ -948,28 +953,28 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
         )
     
     def obs_to_tensor(self, observation: gym.spaces.GraphInstance):
-        if isinstance(observation, list):
+        if isinstance(observation, np.ndarray):
             vectorized_env = True
         else:
             vectorized_env = False
         if vectorized_env:
             torch_obs = list()
             for obs in observation:
-                x = th.tensor(obs.nodes).float()
+                x = th.tensor(obs[0].nodes).float()
                 #edge_index = th.tensor(obs.edge_links, dtype=th.long).t().contiguous().view(2, -1)
-                edge_index = th.tensor(obs.edge_links, dtype=th.long)
-                edge_attr = th.tensor(obs.edges, dtype=th.float)
+                edge_index = th.tensor(obs[0].edge_links, dtype=th.long)
+                edge_attr = th.tensor(obs[0].edges, dtype=th.float)
                 edge_num = th.count_nonzero(edge_attr[:,-1]==1)
                 torch_obs.append(thg.data.Data(x=x, edge_index=edge_index, edge_attr=edge_attr, edge_num=edge_num))
-            if len(torch_obs) == 1:
-                torch_obs = torch_obs[0]
+            #if len(torch_obs) == 1:
+            #    torch_obs = torch_obs[0]
         else:
             x = th.tensor(observation.nodes).float()
             #edge_index = th.tensor(observation.edge_links, dtype=th.long).t().contiguous().view(2, -1)
             edge_index = th.tensor(observation.edge_links, dtype=th.long)
             edge_attr = th.tensor(observation.edges, dtype=th.float)
             edge_num = th.count_nonzero(edge_attr[:,-1]==1)
-            torch_obs = thg.data.Data(x=x, edge_index=edge_index, edge_attr=edge_attr, edge_num=edge_num)
+            torch_obs = [thg.data.Data(x=x, edge_index=edge_index, edge_attr=edge_attr, edge_num=edge_num)]
         return torch_obs, vectorized_env
     
     def extract_features(self, x, edge_index, edge_attr, batch) -> th.Tensor:

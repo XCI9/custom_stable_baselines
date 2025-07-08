@@ -96,7 +96,9 @@ class DummyVecEnv(VecEnv):
         for key in self.keys:
             if key is None:
                 if isinstance(obs, gym.spaces.GraphInstance):
-                    self.buf_obs[key] = [obs]
+                    value = np.empty((1,1), dtype=object)
+                    value[0,0] = obs
+                    self.buf_obs[key] = value
                 else:
                     self.buf_obs[key][env_idx] = obs
             else:

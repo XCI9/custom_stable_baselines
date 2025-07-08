@@ -21,7 +21,7 @@ def copy_obs_dict(obs: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     assert isinstance(obs, OrderedDict), f"unexpected type for observations '{type(obs)}'"
     obs_dict_list = list()
     for k, v in obs.items():
-        if isinstance(v[0], gym.spaces.GraphInstance):
+        if isinstance(v, gym.spaces.GraphInstance):
             obs_dict_list.append((k, copy.deepcopy(v)))
         else:
             obs_dict_list.append((k, np.copy(v)))

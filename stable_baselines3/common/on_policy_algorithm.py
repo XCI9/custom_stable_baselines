@@ -158,25 +158,26 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         rollout_buffer.reset()
         # Sample new weights for the state dependent exploration
         if self.use_sde:
-            self.policy.reset_noise(env.num_envs)
+            self.policy.reset_noise(self.env.num_envs)
 
         callback.on_rollout_start()
         policy_time = 0
         predict_time = 0
         step_time = 0
-        self.policy = self.policy.to(th.device("cpu"))
+        add_buffer_time = 0
+        # self.policy = self.policy.to(th.device("cpu"))
         while n_steps < n_rollout_steps:
             if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
                 # Sample a new noise matrix
-                self.policy.reset_noise(env.num_envs)
+                self.policy.reset_noise(self.env.num_envs)
             step_start = time.time_ns()
             with th.no_grad():
                 # Convert to pytorch tensor or to TensorDict
-                if isinstance(self._last_obs[0], gym.spaces.GraphInstance):
-                    obs_tensor = self.policy.obs_to_tensor(self._last_obs[0])[0]
-                    obs_tensor = thg.data.Batch.from_data_list([obs_tensor])
-                    #obs_tensor = obs_tensor.to(self.device)
-                    obs_tensor = obs_tensor.to(th.device("cpu"))
+                if isinstance(self.observation_space, gym.spaces.Graph):
+                    obs_tensor, is_vectorize = self.policy.obs_to_tensor(self._last_obs)
+                    obs_tensor = thg.data.Batch.from_data_list(obs_tensor)
+                    obs_tensor = obs_tensor.to(self.device)
+                    # obs_tensor = obs_tensor.to(th.device("cpu"))
                 else:
                     obs_tensor = obs_as_tensor(self._last_obs, self.device)
                 actions, values, log_probs = self.policy(obs_tensor)
@@ -188,10 +189,10 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             if isinstance(self.action_space, gym.spaces.Box):
                 clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
             step_start = time.time_ns()
-            new_obs, rewards, dones, infos = env.step(clipped_actions)
+            new_obs, rewards, dones, infos = self.env.step(clipped_actions)
             step_time += max((time.time_ns() - step_start) / 1e9, sys.float_info.epsilon)
             
-            self.num_timesteps += env.num_envs
+            self.num_timesteps += self.env.num_envs
             # Give access to local variables
             callback.update_locals(locals())
             if callback.on_step() is False:
@@ -216,18 +217,21 @@ class OnPolicyAlgorithm(BaseAlgorithm):
                     with th.no_grad():
                         terminal_value = self.policy.predict_values(terminal_obs)[0]
                     rewards[idx] += self.gamma * terminal_value
+            step_start = time.time_ns()
             rollout_buffer.add(self._last_obs, actions, rewards, self._last_episode_starts, values, log_probs)
+            add_buffer_time += max((time.time_ns() - step_start) / 1e9, sys.float_info.epsilon)
             self._last_obs = new_obs
             self._last_episode_starts = dones
         start_time = time.time_ns()
         with th.no_grad():
-            if isinstance(new_obs[0], gym.spaces.GraphInstance):
-                obs_tensor = self.policy.obs_to_tensor(new_obs[0])[0]
-                self.vertex_num = obs_tensor.x.shape[0]
-                self.edge_num = obs_tensor.edge_index.shape[1]
-                obs_tensor = thg.data.Batch.from_data_list([obs_tensor])
-                #obs_tensor = obs_tensor.to(self.device)
-                obs_tensor = obs_tensor.to(th.device("cpu"))
+            if isinstance(self.observation_space, gym.spaces.Graph):
+                #obs_tensor = self.policy.obs_to_tensor(new_obs[0])[0]
+                obs_tensor, is_vectorize = self.policy.obs_to_tensor(new_obs)
+                self.vertex_num = obs_tensor[0].x.shape[0]
+                self.edge_num = obs_tensor[0].edge_index.shape[1]
+                obs_tensor = thg.data.Batch.from_data_list(obs_tensor)
+                obs_tensor = obs_tensor.to(self.device)
+                # obs_tensor = obs_tensor.to(th.device("cpu"))
             else:
                 obs_tensor = obs_as_tensor(new_obs, self.device)
             # Compute value for the last timestep
@@ -240,6 +244,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self.env_step_time  = step_time
         self.policy_time = policy_time
         self.predict_time = predict_time
+        self.add_buffer_time = add_buffer_time
         
         #print(f"Env step time: {step_time} at step {self.num_timesteps}")
         return True
@@ -307,12 +312,13 @@ class OnPolicyAlgorithm(BaseAlgorithm):
                 self.logger.record("time/env_step_time", self.env_step_time)
                 self.logger.record("time/policy_time", self.policy_time)
                 self.logger.record("time/predict_time", self.predict_time)
+                self.logger.record("time/add_buffer_time", self.add_buffer_time)
                 self.logger.record("time/vertex_num", self.vertex_num)
                 self.logger.record("time/edge_num", self.edge_num)
                 self.logger.dump(step=self.num_timesteps)
                 
             train_start = time.time_ns()
-            self.policy = self.policy.to(self.device)
+            # self.policy = self.policy.to(self.device)
             self.train()
             train_timer += max((time.time_ns() - train_start) / 1e9, sys.float_info.epsilon)
             train_counter += 1
@@ -325,3 +331,8 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         state_dicts = ["policy", "policy.optimizer"]
 
         return state_dicts, []
+    
+        # custom function to reset when set_env called inside training callback
+    #def reset_env_inside_training(self):
+    #    self.rollout_buffer.n_envs = self.env.num_envs
+    #    self.rollout_buffer.reset()

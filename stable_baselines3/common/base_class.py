@@ -529,6 +529,10 @@ class BaseAlgorithm(ABC):
         self.n_envs = env.num_envs
         self.env = env
 
+    # custom function to reset when set_env called inside training callback
+    #def reset_env_inside_training(self):
+    #    raise NotImplementedError
+
     @abstractmethod
     def learn(
         self,
@@ -748,7 +752,7 @@ class BaseAlgorithm(ABC):
         model._setup_model()
 
         # put state_dicts back in place
-        model.set_parameters(params, exact_match=True, device=device)
+        model.set_parameters(params, exact_match=False, device=device)
 
         # put other pytorch variables back in place
         if pytorch_variables is not None:

@@ -218,5 +218,9 @@ def _flatten_obs(obs: Union[List[VecEnvObs], Tuple[VecEnvObs]], space: gym.space
         assert isinstance(obs[0], tuple), "non-tuple observation for environment with Tuple observation space"
         obs_len = len(space.spaces)
         return tuple(np.stack([o[i] for o in obs]) for i in range(obs_len))
+    elif isinstance(space, gym.spaces.Graph):
+        ret = np.empty((len(obs),1), dtype=object)
+        ret[:,0] = obs
+        return ret
     else:
         return np.stack(obs)

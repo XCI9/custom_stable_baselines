@@ -552,18 +552,18 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         num_collected_steps, num_collected_episodes = 0, 0
 
-        assert isinstance(env, VecEnv), "You must pass a VecEnv"
+        assert isinstance(self.env, VecEnv), "You must pass a VecEnv"
         assert train_freq.frequency > 0, "Should at least collect one step or episode."
 
-        if env.num_envs > 1:
+        if self.env.num_envs > 1:
             assert train_freq.unit == TrainFrequencyUnit.STEP, "You must use only one env when doing episodic training."
 
         # Vectorize action noise if needed
-        if action_noise is not None and env.num_envs > 1 and not isinstance(action_noise, VectorizedActionNoise):
-            action_noise = VectorizedActionNoise(action_noise, env.num_envs)
+        if action_noise is not None and self.env.num_envs > 1 and not isinstance(action_noise, VectorizedActionNoise):
+            action_noise = VectorizedActionNoise(action_noise, self.env.num_envs)
 
         if self.use_sde:
-            self.actor.reset_noise(env.num_envs)
+            self.actor.reset_noise(self.env.num_envs)
 
         callback.on_rollout_start()
         continue_training = True
@@ -571,22 +571,22 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         while should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
             if self.use_sde and self.sde_sample_freq > 0 and num_collected_steps % self.sde_sample_freq == 0:
                 # Sample a new noise matrix
-                self.actor.reset_noise(env.num_envs)
+                self.actor.reset_noise(self.env.num_envs)
 
             # Select action randomly or according to policy
-            actions, buffer_actions = self._sample_action(learning_starts, action_noise, env.num_envs)
+            actions, buffer_actions = self._sample_action(learning_starts, action_noise, self.env.num_envs)
 
             # Rescale and perform action
-            new_obs, rewards, dones, infos = env.step(actions)
+            new_obs, rewards, dones, infos = self.env.step(actions)
 
-            self.num_timesteps += env.num_envs
+            self.num_timesteps += self.env.num_envs
             num_collected_steps += 1
 
             # Give access to local variables
             callback.update_locals(locals())
             # Only stop training if return value is False, not when it is None.
             if callback.on_step() is False:
-                return RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training=False)
+                return RolloutReturn(num_collected_steps * self.env.num_envs, num_collected_episodes, continue_training=False)
 
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
@@ -609,7 +609,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     self._episode_num += 1
 
                     if action_noise is not None:
-                        kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
+                        kwargs = dict(indices=[idx]) if self.env.num_envs > 1 else {}
                         action_noise.reset(**kwargs)
 
                     # Log training infos
@@ -618,4 +618,4 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         callback.on_rollout_end()
 
-        return RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)
+        return RolloutReturn(num_collected_steps * self.env.num_envs, num_collected_episodes, continue_training)
